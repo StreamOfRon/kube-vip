@@ -8,13 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Create distinct anonymous nftables destination-port sets for each egress allowed-network rule, preventing `EBUSY` when multiple allowed networks and destination ports are combined. Fixes #1804.
+- Use host scope for local routing-table routes so Linux accepts IPv4 `RTN_LOCAL` routes without assigning the VIP to an interface.
 - Make `manager` and `service` runtime configuration presence-aware, with explicit CLI flags taking precedence over environment variables, configuration files, and defaults. Strict YAML/JSON loading now preserves explicit false, zero, and empty values and normalizes standalone BGP peer configuration for runtime use.
 - Propagate `bgp_attach_ip_to_interface` into per-service config so it attaches BGP-mode Service VIPs to the interface as configured.
 - Add a configurable kube-vip instance name and use it to isolate internal nftables egress tables, persist table ownership on Services, and migrate per-Service chains without affecting other deployments. Fixes #1634.
 - Retry on 403 Forbidden and 401 Unauthorized in `ServicesWatcher` at startup with exponential backoff. Fixes #1464.
 - Reintroduce BGP config via node annotations. Fixes #1488.
 - Fail fast in runtime `manager` and `service` paths when legacy `vip_address` is used without `vip_subnet` in control-plane ARP, BGP, or Routing Table mode.
+- Service VIP releases no longer abort when the Kubernetes API is unreachable: losing a service lease while the API is down previously attempted the node-label removal first, and on failure skipped stopping the ARP/NDP broadcaster and deleting the VIP from the interface, leaving the node answering ARP for a VIP it no longer owned. Local teardown (broadcaster stop, VIP address and route removal) now always runs first; node-label removal and other API bookkeeping are retried best-effort afterwards, logged and counted without blocking the release. The control-plane release path already behaved this way. Fixes #1775.
+- Stale service state on non-leader nodes is reconciled: as the services watcher starts (ARP-mode services with a bound VIP whose lease is not held by this node) and periodically for state attributed to this node via its node labels, kube-vip now removes those leftover bindings and `service-provided.kube-vip.io/*` labels, healing what an interrupted release (or a pod restart after one) stranded, without a node reboot. Fixes #1775.
+- Fix a data race on the cluster stop signal: `Cluster.Stop()` replaces the channel after closing it, so readers must snapshot it under the mutex; the load-balancer shutdown goroutines now take a stable snapshot instead of selecting on the field directly.
 - Cancel the mode context on init or configuration failure before waiting on goroutines during shutdown.
+- Join dual-stack Service addresses with `_` instead of `,` in the `service-provided.kube-vip.io` node label so the label value is valid and node labeling no longer causes Service lease churn. Fixes #1793.
 
 
 ### Added
